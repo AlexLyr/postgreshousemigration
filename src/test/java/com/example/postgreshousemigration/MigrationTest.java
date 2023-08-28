@@ -1,32 +1,78 @@
 package com.example.postgreshousemigration;
 
-import org.junit.BeforeClass;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.*;
+import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.DatabasePopulatorUtils;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.junit4.SpringRunner;
-import org.testcontainers.ext.ScriptUtils;
+import org.testcontainers.containers.ClickHouseContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest
-@Import(DatabaseTestConfig.class)
+@Import(MigrationTest.DatabaseTestConfig.class)
 public class MigrationTest {
 
+
+    private static PostgreSQLContainer<?> postgresContainer;
+    private static ClickHouseContainer clickHouseContainer;
+
+    static {
+        postgresContainer = new PostgreSQLContainer<>("postgres:13.2");
+        clickHouseContainer = new ClickHouseContainer("yandex/clickhouse-server:21.3");
+
+        postgresContainer.start();
+        clickHouseContainer.start();
+    }
+
+    @AfterClass
+    public static void cleanup() {
+        postgresContainer.stop();
+        clickHouseContainer.stop();
+    }
+
+    @TestConfiguration
+    public static class DatabaseTestConfig {
+
+        @Bean
+        public DataSource postgresDataSource() {
+            return DataSourceBuilder.create()
+                    .url(postgresContainer.getJdbcUrl())
+                    .username(postgresContainer.getUsername())
+                    .password(postgresContainer.getPassword())
+                    .driverClassName(postgresContainer.getDriverClassName())
+                    .build();
+        }
+
+        @Bean
+        public DataSource clickhouseDataSource() {
+            return DataSourceBuilder.create()
+                    .url(clickHouseContainer.getJdbcUrl())
+                    .username(clickHouseContainer.getUsername())
+                    .password(clickHouseContainer.getPassword())
+                    .driverClassName(clickHouseContainer.getDriverClassName())
+                    .build();
+        }
+    }
 
     @Autowired
     private DataSource clickhouseDataSource;
@@ -35,9 +81,9 @@ public class MigrationTest {
     private DataSource postgresDataSource;
 
     @BeforeEach
-    public void setup() throws SQLException { ;
+    public void initializeDatabase() throws SQLException {
         runScript(clickhouseDataSource, "clickhouse-init.sql");
-        runScript(postgresDataSource, "postgres-init.sql");
+        runScript(postgresDataSource, "postgresql-init.sql");
     }
 
     private void runScript(DataSource dataSource, String scriptLocation) throws SQLException {
